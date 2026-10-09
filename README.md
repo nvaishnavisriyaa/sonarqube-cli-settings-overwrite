@@ -44,8 +44,9 @@ await fsPromises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf
 So when the file does not parse, the merge starts from `{ hooks: {} }` and the
 write replaces the user's file with just the Sonar entry. `permissions`, `env`,
 `model`, `statusLine` and the user's own hooks are gone. There is no backup and
-no message, because the catch around the caller logs at debug level and is
-marked non-critical.
+no message. Not because anything is swallowed, but because nothing fails: the
+bad parse is turned into an empty document, so the write succeeds and the
+migration logs its usual debug line.
 
 ## How it is reached
 
@@ -128,8 +129,15 @@ export async function readOrInitJson<T>(path: string, defaultValue: T): Promise<
 This is the behaviour the project already has elsewhere. `readJson` in
 `src/core/framework/resources/json-patch.ts` raises
 `"<path> contains invalid JSON. Please fix or delete it and re-run."` for the
-same situation, and there is a passing test covering it for
-`sonar integrate claude`. Only the legacy migration path misses it.
+same situation, and it is covered in
+`tests/integration/specs/integrate/claude.test.ts`. Only the legacy migration
+path misses it.
+
+One difference worth noting: `json-patch.ts` puts the whole sentence in a
+single message string, while the version above splits it into `message` and
+`remediationHint`. That was to match how `CommandFailedError` is used in the
+integrate commands, and it is easy to change to one string if that is
+preferred.
 
 ## One thing the fix does not do
 
@@ -146,10 +154,10 @@ variant of the read. It does not run the CLI, so it does not prove the
 surrounding migration conditions at runtime. Those were read from the source
 and are described above so they can be checked.
 
-The two unaffected callers of `readOrInitJson`, in
-`integrate/antigravity/hooks.ts` and `integrate/copilot/hooks.ts`, are
-read-only probes that never write the document back. They are not part of this
-report.
+The other two callers of `readOrInitJson` are `detectGlobalSecretsHook`, one in
+`integrate/antigravity/hooks.ts` and one in `integrate/copilot/hooks.ts`. Both
+only look at what they read and never write the document back, so they are not
+part of this report.
 
 ## Licence
 
