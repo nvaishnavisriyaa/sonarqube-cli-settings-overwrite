@@ -1,0 +1,56 @@
+--- a/src/commands/integrate/_common/hooks.ts
++++ b/src/commands/integrate/_common/hooks.ts
+@@ -18,6 +18,12 @@
+  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+  */
+ 
++// MODIFIED COPY. This file is SonarSource/sonarqube-cli's
++// src/commands/integrate/_common/hooks.ts, taken from master on 2026-10-09 and
++// changed in one place: readOrInitJson now raises on a file that exists but
++// does not parse, instead of returning the default. See fix.patch for the diff
++// and README.md for why. Everything else is unchanged.
++
+ // Shared hook helpers used by the agent integrations. Keeps the hook script
+ // builders, cross-platform script writer, and JSON config read-or-init helper
+ // in one place so every integration stays behaviorally aligned.
+@@ -26,6 +32,7 @@
+ import { readFile, writeFile } from 'node:fs/promises';
+ import { join } from 'node:path';
+ 
++import { CommandFailedError } from '@/core/commands/command-error.ts';
+ import type { IntegrationContext } from '@/core/framework/features';
+ 
+ import type { HookCommand, HookConfig, HooksDocument, ManagedHookEntry } from './types.ts';
+@@ -76,16 +83,27 @@
+ }
+ 
+ /**
+- * Read a JSON file at `path`, returning `defaultValue` when the file does
+- * not exist or cannot be parsed. Used for hook config files that may be
+- * missing or corrupted on a fresh install.
++ * Read a JSON file at `path`, returning `defaultValue` when the file is absent
++ * or empty. Used for hook config files that may be missing on a fresh install.
++ *
++ * A file that exists but does not parse is an error, not an empty document.
++ * Callers merge the result and write it straight back, so returning the default
++ * here would silently replace a user-owned file (`.claude/settings.json` holds
++ * permissions, env, model and the user's own hooks) with only the entry being
++ * installed. Failing matches `readJson` in
++ * `core/framework/resources/json-patch.ts`, which the declarative integration
++ * path already uses for the same file.
+  */
+ export async function readOrInitJson<T>(path: string, defaultValue: T): Promise<T> {
+   if (!existsSync(path)) return defaultValue;
++  const raw = await readFile(path, 'utf-8');
++  if (raw.trim().length === 0) return defaultValue;
+   try {
+-    return JSON.parse(await readFile(path, 'utf-8')) as T;
++    return JSON.parse(raw) as T;
+   } catch {
+-    return defaultValue;
++    throw new CommandFailedError(`${path} contains invalid JSON.`, {
++      remediationHint: 'Fix or delete the file, then re-run.',
++    });
+   }
+ }
+ 
